@@ -12,6 +12,7 @@ LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
 LAZY_SECONDS=1200   # ponytail: lazy start fixo em 20min; vira argumento se alguém pedir
+MUTED_CAP=30        # ponytail: Mac no mudo -> desmuta com o volume do sistema limitado a 30% só durante o som, e volta ao mudo
 
 # $1 = modo (normal | slow | fast | MIN-MAX em segundos) -> segundos de espera entre sons
 gap_seconds() {
@@ -31,6 +32,14 @@ pick_next() {
 
 # $1 = volume em % (0-100) -> ganho linear do afplay (60 -> 0.60, 100 -> 1.00)
 pct_to_gain() { printf '%d.%02d' $(( $1 / 100 )) $(( $1 % 100 )); }
+
+# "output volume:75, input volume:48, alert volume:100, output muted:true" -> SYS_VOL=75 SYS_MUTED=true
+parse_volume_settings() {
+  SYS_VOL=0 SYS_MUTED=false
+  [[ $1 =~ output\ volume:([0-9]+).*output\ muted:(true|false) ]] && SYS_VOL=${BASH_REMATCH[1]} SYS_MUTED=${BASH_REMATCH[2]}
+}
+read_sys_audio() { parse_volume_settings "$(osascript -e 'get volume settings' 2>/dev/null)"; }
+set_sys_audio()  { osascript -e "set volume output volume $1" -e "set volume output muted $2" >/dev/null 2>&1; }   # $1 = 0-100, $2 = true|false
 
 read_settings() {
   MODE_=normal VOL_=60 LAZY_=0
@@ -61,7 +70,7 @@ PLIST
 
 # loop em foreground; é isso que o launchd executa
 cmd_run() {
-  local prev='' f gap files gain
+  local prev='' f gap files gain cap note
   read_settings; gain=$(pct_to_gain "$VOL_")
   log "iniciado ($(settings_str))"
   (( LAZY_ )) && { log "lazy: primeiro som em $(( LAZY_SECONDS / 60 ))min"; sleep "$LAZY_SECONDS"; }
@@ -70,10 +79,17 @@ cmd_run() {
     files=("$DIR"/assets/*)
     [[ -e ${files[0]} ]] || { log "nenhum áudio em $DIR/assets"; exit 1; }
     f=$(pick_next "$prev" "${files[@]}")
+    read_sys_audio; note=''
+    if [[ $SYS_MUTED == true ]]; then
+      cap=$(( SYS_VOL < MUTED_CAP ? SYS_VOL : MUTED_CAP ))
+      trap 'set_sys_audio "$SYS_VOL" true; exit' TERM INT   # stop no meio do som: o som termina, volta ao mudo, sai. SIGKILL deixa desmutado.
+      set_sys_audio "$cap" false
+    fi
     /usr/bin/afplay -v "$gain" "$f" || log "erro ao tocar $f"
+    if [[ $SYS_MUTED == true ]]; then set_sys_audio "$SYS_VOL" true; trap - TERM INT; note=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"; fi
     prev=$f
     gap=$(gap_seconds "$MODE_")
-    log "tocou $(basename "$f"); próximo em ${gap}s"
+    log "tocou $(basename "$f")$note; próximo em ${gap}s"
     sleep "$gap"
   done
 }
@@ -136,6 +152,7 @@ uso: $SELF <comando>
   enable-autostart          inicia sozinho no login com as opções do último start (visível em Itens de Início)
   disable-autostart         remove do login
   uninstall                 stop + disable-autostart + apaga $DIR
+obs: toca mesmo com o Mac no mudo (desmuta com o sistema limitado a 30% durante o som; volta ao mudo depois)
 log: $LOG
 EOT
 }

@@ -1,6 +1,6 @@
 # soundloop
 
-Toca um som aleatório em background, em intervalos aleatórios. Brincadeira de escritório: **consensual, visível e parável**. Quem instala sabe o que é e como parar. Só macOS.
+Toca um som aleatório em background, em intervalos aleatórios. Brincadeira de escritório: **consensual, visível e parável**. Quem instala sabe o que é, sabe que **toca mesmo com o Mac no mudo**, e sabe como parar. Só macOS.
 
 ## Instalar
 
@@ -33,7 +33,8 @@ Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem arg
 - Cada ciclo: sorteia um som de `assets/` (sempre diferente do anterior), toca com `afplay`, espera um intervalo aleatório, repete. Um som por vez, sem sobreposição.
 - O loop roda como serviço do `launchd` (label `com.bzangi.soundloop`). `status` mostra o PID. Log em `~/.soundloop/soundloop.log`.
 - Autostart é um plist em `~/Library/LaunchAgents/`; o macOS lista em Ajustes do Sistema › Geral › Itens de Início. Só existe se você rodar `enable-autostart`.
-- Toca a 60% do volume atual do Mac por padrão; `N%` no `start` muda. Não mexe no volume do sistema.
+- Toca a 60% do volume atual do Mac por padrão; `N%` no `start` muda.
+- **Toca mesmo com o Mac no mudo.** Na hora do som: desmuta com o volume do sistema limitado a 30%, toca, volta ao mudo e restaura o volume. `stop` no meio de um som espera o som acabar e restaura também. Só `kill -9` no meio de um som deixa o Mac desmutado.
 - Zero dependências: `bash`, `afplay` e `launchctl` já vêm no macOS.
 
 ## Sons
@@ -50,4 +51,4 @@ Pra entrar no pacote de todo mundo, commita em `assets/` do repo (nome sem espa�
 
 ## Dev
 
-`./test.sh` roda os testes (usa um label launchd separado e toca os samples algumas vezes, ~20s).
+`./test.sh` roda os testes (~40s): usa um label launchd separado, põe o volume do Mac em 5% e desmutado, muta de propósito no bloco do override, e restaura o estado original no fim. Os sons de teste são audíveis.
