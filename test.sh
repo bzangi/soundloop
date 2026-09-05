@@ -12,6 +12,7 @@ source ./soundloop
 in_range() { local lo=$1 hi=$2 v; for _ in $(seq 200); do v=$(gap_seconds "$3"); [[ $v =~ ^[0-9]+$ ]] && (( v >= lo && v <= hi )) || return 1; done; }
 in_range 90 210 normal    && ok "gap normal 90-210s"     || bad "gap normal fora da faixa"
 in_range 1800 3000 slow   && ok "gap slow 1800-3000s"    || bad "gap slow fora da faixa"
+in_range 10 13 fast       && ok "gap fast 10-13s"        || bad "gap fast fora da faixa"
 in_range 5 6 5-6          && ok "gap custom 5-6"         || bad "gap custom fora da faixa"
 
 # pick_next: nunca repete o anterior com >=2, repete quando só há 1, cobre todos os outros
@@ -41,6 +42,7 @@ $APP status | grep -q '^parado' && ok "status após stop: parado" || bad "status
 $APP start foo >/dev/null 2>&1 && bad "modo inválido aceito" || ok "modo inválido recusado"
 $APP start 9-3 >/dev/null 2>&1 && bad "faixa invertida aceita" || ok "faixa invertida recusada"
 $APP start slow >/dev/null && $APP status | grep -q 'modo slow' && ok "start slow: modo slow no status" || bad "modo slow"
+$APP stop >/dev/null; $APP start fast >/dev/null && $APP status | grep -q "modo fast" && ok "start fast: modo fast no status" || bad "modo fast"
 (( $(grep -c 'iniciado' "$APPLOG") >= 2 )) && ok "log acumula entre starts" || bad "log foi truncado"
 $APP stop >/dev/null
 $APP enable-autostart >/dev/null && [[ -f $LA ]] && ok "enable-autostart cria plist em LaunchAgents" || bad "enable-autostart"

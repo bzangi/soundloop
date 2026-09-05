@@ -13,10 +13,10 @@ AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
 VOLUME=0.5   # ponytail: ganho linear do afplay (1 = volume atual do sistema). Ajuste aqui.
 
-# $1 = modo (normal | slow | MIN-MAX em segundos) -> segundos de espera entre sons
+# $1 = modo (normal | slow | fast | MIN-MAX em segundos) -> segundos de espera entre sons
 gap_seconds() {
   local range
-  case $1 in slow) range=1800-3000 ;; normal) range=90-210 ;; *) range=$1 ;; esac
+  case $1 in slow) range=1800-3000 ;; fast) range=10-13 ;; normal) range=90-210 ;; *) range=$1 ;; esac
   local min=${range%-*} max=${range#*-}
   echo $(( min + RANDOM % (max - min + 1) ))
 }
@@ -69,7 +69,7 @@ cmd_run() {
 
 cmd_start() {
   local mode=$1
-  [[ $mode =~ ^(normal|slow|([0-9]+)-([0-9]+))$ ]] || die "modo inválido: $mode (use: slow, ou MIN-MAX em segundos)"
+  [[ $mode =~ ^(normal|slow|fast|([0-9]+)-([0-9]+))$ ]] || die "modo inválido: $mode (use: slow, fast, ou MIN-MAX em segundos)"
   [[ -n ${BASH_REMATCH[2]} ]] && (( BASH_REMATCH[2] > BASH_REMATCH[3] )) && die "faixa inválida: $mode (MIN deve ser <= MAX)"
   running && die "já está rodando (PID $(pid), modo $(cat "$MODE" 2>/dev/null)). Pra trocar o modo: $SELF stop && $SELF start $mode"
   echo "$mode" > "$MODE"
@@ -110,7 +110,7 @@ usage() { cat <<EOT
 soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
 
 uso: $SELF <comando>
-  start [slow|MIN-MAX]  inicia. normal: 90-210s entre sons | slow: 30-50min | MIN-MAX: segundos
+  start [slow|fast|MIN-MAX]  inicia. normal: 90-210s entre sons | slow: 30-50min | fast: 10-13s | MIN-MAX: segundos
   stop                  para (o som em curso termina sozinho)
   status                rodando/parado, PID, modo, autostart
   enable-autostart      inicia sozinho no login (visível em Itens de Início)

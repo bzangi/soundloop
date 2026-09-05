@@ -16,6 +16,7 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 |---|---|
 | `~/.soundloop/soundloop start` | inicia em background (90–210s entre sons) |
 | `~/.soundloop/soundloop start slow` | modo lento (30–50 min entre sons) |
+| `~/.soundloop/soundloop start fast` | modo rápido (10–13s entre sons) |
 | `~/.soundloop/soundloop start 5-10` | intervalo custom, em segundos |
 | `~/.soundloop/soundloop stop` | para (o som em curso termina sozinho) |
 | `~/.soundloop/soundloop status` | rodando/parado, PID, modo, autostart |
