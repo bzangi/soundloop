@@ -18,18 +18,22 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 | `~/.soundloop/soundloop start slow` | modo lento (30–50 min entre sons) |
 | `~/.soundloop/soundloop start fast` | modo rápido (10–13s entre sons) |
 | `~/.soundloop/soundloop start 5-10` | intervalo custom, em segundos |
+| `~/.soundloop/soundloop start fast 30%` | modo rápido a 30% do volume do Mac (default: 60%) |
+| `~/.soundloop/soundloop start lazy` | primeiro som só depois de 20 min; combina com qualquer modo |
 | `~/.soundloop/soundloop stop` | para (o som em curso termina sozinho) |
 | `~/.soundloop/soundloop status` | rodando/parado, PID, modo, autostart |
 | `~/.soundloop/soundloop enable-autostart` | inicia sozinho no login |
 | `~/.soundloop/soundloop disable-autostart` | remove do login |
 | `~/.soundloop/soundloop uninstall` | para, remove do login e apaga `~/.soundloop` |
 
+Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem argumentos = normal, 60%, sem lazy. `enable-autostart` usa as opções do último `start`.
+
 ## Como funciona
 
 - Cada ciclo: sorteia um som de `assets/` (sempre diferente do anterior), toca com `afplay`, espera um intervalo aleatório, repete. Um som por vez, sem sobreposição.
 - O loop roda como serviço do `launchd` (label `com.bzangi.soundloop`). `status` mostra o PID. Log em `~/.soundloop/soundloop.log`.
 - Autostart é um plist em `~/Library/LaunchAgents/`; o macOS lista em Ajustes do Sistema › Geral › Itens de Início. Só existe se você rodar `enable-autostart`.
-- Toca a 50% do volume atual do Mac (`afplay -v 0.5`). Não mexe no volume do sistema.
+- Toca a 60% do volume atual do Mac por padrão; `N%` no `start` muda. Não mexe no volume do sistema.
 - Zero dependências: `bash`, `afplay` e `launchctl` já vêm no macOS.
 
 ## Sons

@@ -15,6 +15,8 @@ in_range 1800 3000 slow   && ok "gap slow 1800-3000s"    || bad "gap slow fora d
 in_range 10 13 fast       && ok "gap fast 10-13s"        || bad "gap fast fora da faixa"
 in_range 5 6 5-6          && ok "gap custom 5-6"         || bad "gap custom fora da faixa"
 
+[[ $(pct_to_gain 60) == 0.60 && $(pct_to_gain 100) == 1.00 && $(pct_to_gain 5) == 0.05 ]] && ok "pct_to_gain 60/100/5" || bad "pct_to_gain: $(pct_to_gain 60) $(pct_to_gain 100) $(pct_to_gain 5)"
+
 # pick_next: nunca repete o anterior com >=2, repete quando só há 1, cobre todos os outros
 rep=0; for _ in $(seq 200); do v=$(pick_next b a b c); [[ $v == a || $v == c ]] || rep=1; done
 (( rep == 0 )) && ok "pick_next não repete o anterior" || bad "pick_next repetiu o anterior"
@@ -41,8 +43,13 @@ $APP stop | grep -q "^parado" && ok "stop" || bad "stop"
 $APP status | grep -q '^parado' && ok "status após stop: parado" || bad "status após stop"
 $APP start foo >/dev/null 2>&1 && bad "modo inválido aceito" || ok "modo inválido recusado"
 $APP start 9-3 >/dev/null 2>&1 && bad "faixa invertida aceita" || ok "faixa invertida recusada"
-$APP start slow >/dev/null && $APP status | grep -q 'modo slow' && ok "start slow: modo slow no status" || bad "modo slow"
-$APP stop >/dev/null; $APP start fast >/dev/null && $APP status | grep -q "modo fast" && ok "start fast: modo fast no status" || bad "modo fast"
+$APP start slow >/dev/null && $APP status | grep -q 'modo slow, volume 60%' && ok "start slow: modo slow, volume default 60%" || bad "start slow / volume default: $($APP status | head -1)"
+$APP stop >/dev/null; $APP start fast 30% >/dev/null && $APP status | grep -q 'modo fast, volume 30%' && ok "start fast 30%: modo e volume no status" || bad "start fast 30%: $($APP status | head -1)"
+$APP stop >/dev/null; $APP start 45% >/dev/null && $APP status | grep -q 'modo normal, volume 45%' && ok "start 45%: modo normal, volume 45%" || bad "start 45%: $($APP status | head -1)"
+$APP stop >/dev/null; $APP start 150% >/dev/null 2>&1 && bad "volume >100% aceito" || ok "volume >100% recusado"
+n1=$(grep -c tocou "$APPLOG"); $APP start fast lazy >/dev/null && $APP status | grep -q 'modo fast, volume 60%, lazy' && ok "start fast lazy: lazy no status" || bad "start fast lazy: $($APP status | head -1)"
+sleep 3; (( $(grep -c tocou "$APPLOG") == n1 )) && grep -q 'lazy' "$APPLOG" && ok "lazy: nada tocou nos 3s iniciais e log avisa" || bad "lazy: tocou ou não logou"
+$APP stop >/dev/null
 (( $(grep -c 'iniciado' "$APPLOG") >= 2 )) && ok "log acumula entre starts" || bad "log foi truncado"
 $APP stop >/dev/null
 $APP enable-autostart >/dev/null && [[ -f $LA ]] && ok "enable-autostart cria plist em LaunchAgents" || bad "enable-autostart"

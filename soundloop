@@ -6,12 +6,12 @@ set -u
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SELF=$DIR/soundloop
 LOG=$DIR/soundloop.log
-MODE=$DIR/mode
+SETTINGS=$DIR/settings   # "modo volume lazy" — gravado pelo start, lido pelo run e pelo status (vale pro autostart)
 PLIST=$DIR/soundloop.plist
 LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
-VOLUME=0.5   # ponytail: ganho linear do afplay (1 = volume atual do sistema). Ajuste aqui.
+LAZY_SECONDS=1200   # ponytail: lazy start fixo em 20min; vira argumento se alguém pedir
 
 # $1 = modo (normal | slow | fast | MIN-MAX em segundos) -> segundos de espera entre sons
 gap_seconds() {
@@ -28,6 +28,16 @@ pick_next() {
   (( ${#others[@]} )) || others=("$@")
   echo "${others[RANDOM % ${#others[@]}]}"
 }
+
+# $1 = volume em % (0-100) -> ganho linear do afplay (60 -> 0.60, 100 -> 1.00)
+pct_to_gain() { printf '%d.%02d' $(( $1 / 100 )) $(( $1 % 100 )); }
+
+read_settings() {
+  MODE_=normal VOL_=60 LAZY_=0
+  [[ -f $SETTINGS ]] && read -r MODE_ VOL_ LAZY_ < "$SETTINGS"
+  VOL_=${VOL_:-60} LAZY_=${LAZY_:-0}
+}
+settings_str() { read_settings; echo "modo $MODE_, volume $VOL_%$( (( LAZY_ )) && echo ', lazy' )"; }
 
 die()     { echo "$*" >&2; exit 1; }
 log()     { echo "$(date '+%F %T') $*"; }
@@ -51,34 +61,42 @@ PLIST
 
 # loop em foreground; é isso que o launchd executa
 cmd_run() {
-  local mode prev='' f gap files
-  mode=$(cat "$MODE" 2>/dev/null || echo normal)
-  log "iniciado (modo $mode)"
+  local prev='' f gap files gain
+  read_settings; gain=$(pct_to_gain "$VOL_")
+  log "iniciado ($(settings_str))"
+  (( LAZY_ )) && { log "lazy: primeiro som em $(( LAZY_SECONDS / 60 ))min"; sleep "$LAZY_SECONDS"; }
   while :; do
-    # ponytail: um pool só, relido a cada ciclo (dá pra jogar sons novos sem reiniciar). Pacotes temáticos = subpasta + nome no arquivo mode.
+    # ponytail: um pool só, relido a cada ciclo (dá pra jogar sons novos sem reiniciar). Pacotes temáticos = subpasta + nome no settings.
     files=("$DIR"/assets/*)
     [[ -e ${files[0]} ]] || { log "nenhum áudio em $DIR/assets"; exit 1; }
     f=$(pick_next "$prev" "${files[@]}")
-    /usr/bin/afplay -v "$VOLUME" "$f" || log "erro ao tocar $f"
+    /usr/bin/afplay -v "$gain" "$f" || log "erro ao tocar $f"
     prev=$f
-    gap=$(gap_seconds "$mode")
+    gap=$(gap_seconds "$MODE_")
     log "tocou $(basename "$f"); próximo em ${gap}s"
     sleep "$gap"
   done
 }
 
+# start [normal|slow|fast|MIN-MAX] [N%] [lazy], em qualquer ordem
 cmd_start() {
-  local mode=$1
-  [[ $mode =~ ^(normal|slow|fast|([0-9]+)-([0-9]+))$ ]] || die "modo inválido: $mode (use: slow, fast, ou MIN-MAX em segundos)"
-  [[ -n ${BASH_REMATCH[2]} ]] && (( BASH_REMATCH[2] > BASH_REMATCH[3] )) && die "faixa inválida: $mode (MIN deve ser <= MAX)"
-  running && die "já está rodando (PID $(pid), modo $(cat "$MODE" 2>/dev/null)). Pra trocar o modo: $SELF stop && $SELF start $mode"
-  echo "$mode" > "$MODE"
+  local a mode=normal vol=60 lazy=0
+  for a in "$@"; do
+    if [[ $a =~ ^(normal|slow|fast|([0-9]+)-([0-9]+))$ ]]; then
+      mode=$a; [[ -n ${BASH_REMATCH[2]} ]] && (( BASH_REMATCH[2] > BASH_REMATCH[3] )) && die "faixa inválida: $a (MIN deve ser <= MAX)"
+    elif [[ $a =~ ^([0-9]|[1-9][0-9]|100)%$ ]]; then vol=${a%\%}
+    elif [[ $a == lazy ]]; then lazy=1
+    else die "argumento inválido: $a (use: slow | fast | MIN-MAX em segundos, N% de volume, lazy)"
+    fi
+  done
+  running && die "já está rodando (PID $(pid), $(settings_str)). Pra trocar: $SELF stop && $SELF start $*"
+  echo "$mode $vol $lazy" > "$SETTINGS"
   write_plist
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null   # limpa instância carregada mas já encerrada
   launchctl bootstrap "$DOMAIN" "$PLIST" || die "falhou ao iniciar"
   sleep 1
   running || die "falhou ao iniciar, veja $LOG"
-  echo "rodando (PID $(pid), modo $mode). Parar: $SELF stop"
+  echo "rodando (PID $(pid), $(settings_str)). Parar: $SELF stop"
 }
 
 cmd_stop() {
@@ -87,15 +105,15 @@ cmd_stop() {
 }
 
 cmd_status() {
-  if running; then echo "rodando (PID $(pid), modo $(cat "$MODE" 2>/dev/null || echo normal))"; else echo "parado"; fi
+  if running; then echo "rodando (PID $(pid), $(settings_str))"; else echo "parado"; fi
   echo "autostart: $([[ -f $AGENT ]] && echo on || echo off)"
   echo "log: $LOG"
 }
 
 cmd_enable_autostart() {
   write_plist; mkdir -p "$(dirname "$AGENT")"; cp "$PLIST" "$AGENT"
-  echo "autostart ativado: inicia sozinho no próximo login (aparece em Ajustes do Sistema > Geral > Itens de Início)."
-  echo "Desativar: $SELF disable-autostart"
+  echo "autostart ativado: inicia sozinho no próximo login, com as opções do último start ($(settings_str))."
+  echo "Aparece em Ajustes do Sistema > Geral > Itens de Início. Desativar: $SELF disable-autostart"
 }
 
 cmd_disable_autostart() { rm -f "$AGENT"; echo "autostart desativado. Se estiver rodando agora, continua até: $SELF stop"; }
@@ -110,19 +128,21 @@ usage() { cat <<EOT
 soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
 
 uso: $SELF <comando>
-  start [slow|fast|MIN-MAX]  inicia. normal: 90-210s entre sons | slow: 30-50min | fast: 10-13s | MIN-MAX: segundos
-  stop                  para (o som em curso termina sozinho)
-  status                rodando/parado, PID, modo, autostart
-  enable-autostart      inicia sozinho no login (visível em Itens de Início)
-  disable-autostart     remove do login
-  uninstall             stop + disable-autostart + apaga $DIR
+  start [modo] [N%] [lazy]  inicia (default: normal, 60%, sem lazy). Ordem livre.
+                            modo: normal 90-210s | slow 30-50min | fast 10-13s | MIN-MAX segundos
+                            N%: volume relativo ao do Mac | lazy: primeiro som só depois de 20min
+  stop                      para (o som em curso termina sozinho)
+  status                    rodando/parado, PID, modo, volume, autostart
+  enable-autostart          inicia sozinho no login com as opções do último start (visível em Itens de Início)
+  disable-autostart         remove do login
+  uninstall                 stop + disable-autostart + apaga $DIR
 log: $LOG
 EOT
 }
 
 main() {
   case ${1:-help} in
-    start) cmd_start "${2:-normal}" ;;
+    start) shift; cmd_start "$@" ;;
     stop|status|run|uninstall) "cmd_$1" ;;
     enable-autostart) cmd_enable_autostart ;;
     disable-autostart) cmd_disable_autostart ;;
