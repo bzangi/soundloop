@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
+# Só macOS: bash + afplay + launchd, zero dependências. O processo é um serviço launchd; nada de PID file/nohup.
+set -u
+
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SELF=$DIR/soundloop
+LOG=$DIR/soundloop.log
+MODE=$DIR/mode
+PLIST=$DIR/soundloop.plist
+LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
+AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
+DOMAIN=gui/$UID
+
+# $1 = modo (normal | slow | MIN-MAX em segundos) -> segundos de espera entre sons
+gap_seconds() {
+  local range
+  case $1 in slow) range=1800-3000 ;; normal) range=90-210 ;; *) range=$1 ;; esac
+  local min=${range%-*} max=${range#*-}
+  echo $(( min + RANDOM % (max - min + 1) ))
+}
+
+# $1 = anterior, resto = candidatos -> um candidato aleatório diferente do anterior (repete se só há 1)
+pick_next() {
+  local prev=$1 f others=(); shift
+  for f in "$@"; do [[ $f != "$prev" ]] && others+=("$f"); done
+  (( ${#others[@]} )) || others=("$@")
+  echo "${others[RANDOM % ${#others[@]}]}"
+}
+
+die()     { echo "$*" >&2; exit 1; }
+log()     { echo "$(date '+%F %T') $*"; }
+running() { launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q $'^\tstate = running'; }
+pid()     { launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -m1 'pid = ' | awk '{print $3}'; }
+
+write_plist() {
+  cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$SELF</string><string>run</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
+  <key>StandardOutPath</key><string>$LOG</string>
+  <key>StandardErrorPath</key><string>$LOG</string>
+</dict></plist>
+PLIST
+}
+
+# loop em foreground; é isso que o launchd executa
+cmd_run() {
+  local mode prev='' f gap files
+  mode=$(cat "$MODE" 2>/dev/null || echo normal)
+  log "iniciado (modo $mode)"
+  while :; do
+    # ponytail: um pool só, relido a cada ciclo (dá pra jogar sons novos sem reiniciar). Pacotes temáticos = subpasta + nome no arquivo mode.
+    files=("$DIR"/assets/*)
+    [[ -e ${files[0]} ]] || { log "nenhum áudio em $DIR/assets"; exit 1; }
+    f=$(pick_next "$prev" "${files[@]}")
+    /usr/bin/afplay "$f" || log "erro ao tocar $f"
+    prev=$f
+    gap=$(gap_seconds "$mode")
+    log "tocou $(basename "$f"); próximo em ${gap}s"
+    sleep "$gap"
+  done
+}
+
+cmd_start() {
+  local mode=$1
+  [[ $mode =~ ^(normal|slow|([0-9]+)-([0-9]+))$ ]] || die "modo inválido: $mode (use: slow, ou MIN-MAX em segundos)"
+  [[ -n ${BASH_REMATCH[2]} ]] && (( BASH_REMATCH[2] > BASH_REMATCH[3] )) && die "faixa inválida: $mode (MIN deve ser <= MAX)"
+  running && die "já está rodando (PID $(pid), modo $(cat "$MODE" 2>/dev/null)). Pra trocar o modo: $SELF stop && $SELF start $mode"
+  echo "$mode" > "$MODE"
+  write_plist
+  launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null   # limpa instância carregada mas já encerrada
+  launchctl bootstrap "$DOMAIN" "$PLIST" || die "falhou ao iniciar"
+  sleep 1
+  running || die "falhou ao iniciar, veja $LOG"
+  echo "rodando (PID $(pid), modo $mode). Parar: $SELF stop"
+}
+
+cmd_stop() {
+  if running; then launchctl bootout "$DOMAIN/$LABEL"; echo "parado. O som em curso termina sozinho."
+  else launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null; echo "não estava rodando"; fi
+}
+
+cmd_status() {
+  if running; then echo "rodando (PID $(pid), modo $(cat "$MODE" 2>/dev/null || echo normal))"; else echo "parado"; fi
+  echo "autostart: $([[ -f $AGENT ]] && echo on || echo off)"
+  echo "log: $LOG"
+}
+
+cmd_enable_autostart() {
+  write_plist; mkdir -p "$(dirname "$AGENT")"; cp "$PLIST" "$AGENT"
+  echo "autostart ativado: inicia sozinho no próximo login (aparece em Ajustes do Sistema > Geral > Itens de Início)."
+  echo "Desativar: $SELF disable-autostart"
+}
+
+cmd_disable_autostart() { rm -f "$AGENT"; echo "autostart desativado. Se estiver rodando agora, continua até: $SELF stop"; }
+
+cmd_uninstall() {
+  [[ -e $DIR/.git ]] && die "isso é um checkout git, não uma instalação. Rode a partir de ~/.soundloop."
+  cmd_stop; cmd_disable_autostart
+  rm -rf "$DIR" && echo "soundloop removido ($DIR)"
+}
+
+usage() { cat <<EOT
+soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
+
+uso: $SELF <comando>
+  start [slow|MIN-MAX]  inicia. normal: 90-210s entre sons | slow: 30-50min | MIN-MAX: segundos
+  stop                  para (o som em curso termina sozinho)
+  status                rodando/parado, PID, modo, autostart
+  enable-autostart      inicia sozinho no login (visível em Itens de Início)
+  disable-autostart     remove do login
+  uninstall             stop + disable-autostart + apaga $DIR
+log: $LOG
+EOT
+}
+
+main() {
+  case ${1:-help} in
+    start) cmd_start "${2:-normal}" ;;
+    stop|status|run|uninstall) "cmd_$1" ;;
+    enable-autostart) cmd_enable_autostart ;;
+    disable-autostart) cmd_disable_autostart ;;
+    help|-h|--help) usage ;;
+    *) usage >&2; exit 1 ;;
+  esac
+}
+
+[[ ${BASH_SOURCE[0]} == "$0" ]] && main "$@"
