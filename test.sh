@@ -27,6 +27,7 @@ export SOUNDLOOP_LABEL=com.bzangi.soundloop.test
 LA=~/Library/LaunchAgents/$SOUNDLOOP_LABEL.plist
 T=$(mktemp -d); trap 'launchctl bootout gui/$UID/$SOUNDLOOP_LABEL 2>/dev/null; rm -f "$LA"; rm -rf "$T"' EXIT
 cp -R . "$T/app"; rm -rf "$T/app/.git"; APP=$T/app/soundloop; APPLOG=$T/app/soundloop.log
+find "$T/app/assets" -type f ! -name windows-error.mp3 ! -name notif-zapzap.mp3 -delete   # só os 2 sons curtos: mantém o teste em ~20s
 
 $APP status | grep -q '^parado' && ok "status inicial: parado" || bad "status inicial"
 $APP start 1-2 | grep -q "^rodando" && ok "start" || bad "start"
@@ -34,6 +35,7 @@ $APP start 1-2 >/dev/null 2>&1 && bad "start duplo aceito" || ok "start duplo re
 $APP status | grep -q '^rodando (PID [0-9]' && ok "status: rodando com PID" || bad "status rodando"
 sleep 12   # afplay tem ~1s de overhead por execução
 n=$(grep -c 'tocou' "$APPLOG" 2>/dev/null); (( n >= 2 )) && ok "log: tocou $n vezes" || bad "log: tocou só $n vezes"
+grep -q "erro ao tocar" "$APPLOG" && bad "log tem erro do afplay" || ok "log sem erro do afplay"
 $APP stop | grep -q "^parado" && ok "stop" || bad "stop"
 $APP status | grep -q '^parado' && ok "status após stop: parado" || bad "status após stop"
 $APP start foo >/dev/null 2>&1 && bad "modo inválido aceito" || ok "modo inválido recusado"

@@ -28,11 +28,14 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 - Cada ciclo: sorteia um som de `assets/` (sempre diferente do anterior), toca com `afplay`, espera um intervalo aleatório, repete. Um som por vez, sem sobreposição.
 - O loop roda como serviço do `launchd` (label `com.bzangi.soundloop`). `status` mostra o PID. Log em `~/.soundloop/soundloop.log`.
 - Autostart é um plist em `~/Library/LaunchAgents/`; o macOS lista em Ajustes do Sistema › Geral › Itens de Início. Só existe se você rodar `enable-autostart`.
+- Toca a 50% do volume atual do Mac (`afplay -v 0.5`). Não mexe no volume do sistema.
 - Zero dependências: `bash`, `afplay` e `launchctl` já vêm no macOS.
 
 ## Sons
 
 Qualquer arquivo que o `afplay` toque (mp3, m4a, wav, aiff) dentro de `~/.soundloop/assets/`. Pode jogar arquivos lá com o loop rodando: o próximo sorteio já considera.
+
+Pra entrar no pacote de todo mundo, commita em `assets/` do repo (nome sem espaços). Quem já instalou pega rodando o install de novo.
 
 ## Remover
 
