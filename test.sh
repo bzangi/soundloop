@@ -13,6 +13,7 @@ in_range() { local lo=$1 hi=$2 v; for _ in $(seq 200); do v=$(gap_seconds "$3");
 in_range 90 210 normal    && ok "gap normal 90-210s"     || bad "gap normal fora da faixa"
 in_range 1800 3000 slow   && ok "gap slow 1800-3000s"    || bad "gap slow fora da faixa"
 in_range 10 13 fast       && ok "gap fast 10-13s"        || bad "gap fast fora da faixa"
+[[ $(gap_seconds ramp) == 900 && $(gap_seconds ramp 900) == 810 && $(gap_seconds ramp 33) == 30 && $(gap_seconds ramp 30) == 30 ]] && ok "gap ramp: 900 no início, x0.9 por som, piso 30" || bad "gap ramp: $(gap_seconds ramp) $(gap_seconds ramp 900) $(gap_seconds ramp 33) $(gap_seconds ramp 30)"
 in_range 5 6 5-6          && ok "gap custom 5-6"         || bad "gap custom fora da faixa"
 
 [[ $(pct_to_gain 60) == 0.60 && $(pct_to_gain 100) == 1.00 && $(pct_to_gain 5) == 0.05 ]] && ok "pct_to_gain 60/100/5" || bad "pct_to_gain: $(pct_to_gain 60) $(pct_to_gain 100) $(pct_to_gain 5)"
@@ -49,7 +50,7 @@ $APP start foo >/dev/null 2>&1 && bad "modo inválido aceito" || ok "modo invál
 $APP start 9-3 >/dev/null 2>&1 && bad "faixa invertida aceita" || ok "faixa invertida recusada"
 $APP start slow >/dev/null && $APP status | grep -q 'modo slow, volume 60%' && ok "start slow: modo slow, volume default 60%" || bad "start slow / volume default: $($APP status | head -1)"
 $APP stop >/dev/null; $APP start fast 30% >/dev/null && $APP status | grep -q 'modo fast, volume 30%' && ok "start fast 30%: modo e volume no status" || bad "start fast 30%: $($APP status | head -1)"
-$APP stop >/dev/null; $APP start 45% >/dev/null && $APP status | grep -q 'modo normal, volume 45%' && ok "start 45%: modo normal, volume 45%" || bad "start 45%: $($APP status | head -1)"
+$APP stop >/dev/null; $APP start 45% >/dev/null && $APP status | grep -q 'modo ramp, volume 45%' && ok "start 45%: modo default ramp, volume 45%" || bad "start 45%: $($APP status | head -1)"
 $APP stop >/dev/null; $APP start 150% >/dev/null 2>&1 && bad "volume >100% aceito" || ok "volume >100% recusado"
 n1=$(grep -c tocou "$APPLOG"); $APP start fast lazy >/dev/null && $APP status | grep -q 'modo fast, volume 60%, lazy' && ok "start fast lazy: lazy no status" || bad "start fast lazy: $($APP status | head -1)"
 sleep 3; (( $(grep -c tocou "$APPLOG") == n1 )) && grep -q 'lazy' "$APPLOG" && ok "lazy: nada tocou nos 3s iniciais e log avisa" || bad "lazy: tocou ou não logou"

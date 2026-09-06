@@ -14,7 +14,8 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 
 | Comando | Faz |
 |---|---|
-| `~/.soundloop/soundloop start` | inicia em background (90–210s entre sons) |
+| `~/.soundloop/soundloop start` | inicia em background no modo `ramp`: começa com 15 min entre sons e aperta 10% a cada som, até 30s (~2h30 de rampa) |
+| `~/.soundloop/soundloop start normal` | 90–210s entre sons, fixo |
 | `~/.soundloop/soundloop start slow` | modo lento (30–50 min entre sons) |
 | `~/.soundloop/soundloop start fast` | modo rápido (10–13s entre sons) |
 | `~/.soundloop/soundloop start 5-10` | intervalo custom, em segundos |
@@ -26,7 +27,7 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 | `~/.soundloop/soundloop disable-autostart` | remove do login |
 | `~/.soundloop/soundloop uninstall` | para, remove do login e apaga `~/.soundloop` |
 
-Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem argumentos = normal, 60%, sem lazy. `enable-autostart` usa as opções do último `start`.
+Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem argumentos = ramp, 60%, sem lazy. `enable-autostart` usa as opções do último `start`.
 
 ## Como funciona
 

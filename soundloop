@@ -12,12 +12,16 @@ LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
 LAZY_SECONDS=1200   # ponytail: lazy start fixo em 20min; vira argumento se alguém pedir
+RAMP_START=900 RAMP_MIN=30 RAMP_FACTOR=90   # ponytail: ramp = gap x0.9 por som: 900s -> 30s em ~33 sons (~2h25). Sem jitter.
 MUTED_CAP=30        # ponytail: Mac no mudo -> desmuta com o volume do sistema limitado a 30% só durante o som, e volta ao mudo
 
-# $1 = modo (normal | slow | fast | MIN-MAX em segundos) -> segundos de espera entre sons
+# $1 = modo (ramp | normal | slow | fast | MIN-MAX em segundos), $2 = gap anterior (só o ramp usa) -> segundos até o próximo som
 gap_seconds() {
-  local range
-  case $1 in slow) range=1800-3000 ;; fast) range=10-13 ;; normal) range=90-210 ;; *) range=$1 ;; esac
+  local range g
+  case $1 in
+    ramp) [[ -n ${2:-} ]] || { echo "$RAMP_START"; return; }; g=$(( $2 * RAMP_FACTOR / 100 )); echo $(( g > RAMP_MIN ? g : RAMP_MIN )); return ;;
+    slow) range=1800-3000 ;; fast) range=10-13 ;; normal) range=90-210 ;; *) range=$1 ;;
+  esac
   local min=${range%-*} max=${range#*-}
   echo $(( min + RANDOM % (max - min + 1) ))
 }
@@ -42,7 +46,7 @@ read_sys_audio() { parse_volume_settings "$(osascript -e 'get volume settings' 2
 set_sys_audio()  { osascript -e "set volume output volume $1" -e "set volume output muted $2" >/dev/null 2>&1; }   # $1 = 0-100, $2 = true|false
 
 read_settings() {
-  MODE_=normal VOL_=60 LAZY_=0
+  MODE_=ramp VOL_=60 LAZY_=0
   [[ -f $SETTINGS ]] && read -r MODE_ VOL_ LAZY_ < "$SETTINGS"
   VOL_=${VOL_:-60} LAZY_=${LAZY_:-0}
 }
@@ -70,7 +74,7 @@ PLIST
 
 # loop em foreground; é isso que o launchd executa
 cmd_run() {
-  local prev='' f gap files gain cap note
+  local prev='' f gap='' files gain cap note
   read_settings; gain=$(pct_to_gain "$VOL_")
   log "iniciado ($(settings_str))"
   (( LAZY_ )) && { log "lazy: primeiro som em $(( LAZY_SECONDS / 60 ))min"; sleep "$LAZY_SECONDS"; }
@@ -88,21 +92,21 @@ cmd_run() {
     /usr/bin/afplay -v "$gain" "$f" || log "erro ao tocar $f"
     if [[ $SYS_MUTED == true ]]; then set_sys_audio "$SYS_VOL" true; trap - TERM INT; note=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"; fi
     prev=$f
-    gap=$(gap_seconds "$MODE_")
+    gap=$(gap_seconds "$MODE_" "$gap")
     log "tocou $(basename "$f")$note; próximo em ${gap}s"
     sleep "$gap"
   done
 }
 
-# start [normal|slow|fast|MIN-MAX] [N%] [lazy], em qualquer ordem
+# start [ramp|normal|slow|fast|MIN-MAX] [N%] [lazy], em qualquer ordem
 cmd_start() {
-  local a mode=normal vol=60 lazy=0
+  local a mode=ramp vol=60 lazy=0
   for a in "$@"; do
-    if [[ $a =~ ^(normal|slow|fast|([0-9]+)-([0-9]+))$ ]]; then
+    if [[ $a =~ ^(ramp|normal|slow|fast|([0-9]+)-([0-9]+))$ ]]; then
       mode=$a; [[ -n ${BASH_REMATCH[2]} ]] && (( BASH_REMATCH[2] > BASH_REMATCH[3] )) && die "faixa inválida: $a (MIN deve ser <= MAX)"
     elif [[ $a =~ ^([0-9]|[1-9][0-9]|100)%$ ]]; then vol=${a%\%}
     elif [[ $a == lazy ]]; then lazy=1
-    else die "argumento inválido: $a (use: slow | fast | MIN-MAX em segundos, N% de volume, lazy)"
+    else die "argumento inválido: $a (use: ramp | normal | slow | fast | MIN-MAX em segundos, N% de volume, lazy)"
     fi
   done
   running && die "já está rodando (PID $(pid), $(settings_str)). Pra trocar: $SELF stop && $SELF start $*"
@@ -144,8 +148,9 @@ usage() { cat <<EOT
 soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
 
 uso: $SELF <comando>
-  start [modo] [N%] [lazy]  inicia (default: normal, 60%, sem lazy). Ordem livre.
-                            modo: normal 90-210s | slow 30-50min | fast 10-13s | MIN-MAX segundos
+  start [modo] [N%] [lazy]  inicia (default: ramp, 60%, sem lazy). Ordem livre.
+                            modo: ramp 900s->30s apertando a cada som (~2h30) | normal 90-210s | slow 30-50min
+                                  fast 10-13s | MIN-MAX segundos
                             N%: volume relativo ao do Mac | lazy: primeiro som só depois de 20min
   stop                      para (o som em curso termina sozinho)
   status                    rodando/parado, PID, modo, volume, autostart
