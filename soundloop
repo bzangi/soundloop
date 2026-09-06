@@ -2,12 +2,14 @@
 # soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
 # Só macOS: bash + afplay + launchd, zero dependências. O processo é um serviço launchd; nada de PID file/nohup.
 set -u
+shopt -s nullglob
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SELF=$DIR/soundloop
 LOG=$DIR/soundloop.log
-SETTINGS=$DIR/settings   # "modo volume lazy" — gravado pelo start, lido pelo run e pelo status (vale pro autostart)
+SETTINGS=$DIR/settings   # "modo volume lazy pacote" — gravado pelo start, lido pelo run e pelo status (vale pro autostart)
 PLIST=$DIR/soundloop.plist
+STOP_SOUND=$DIR/assets/stop.mp3   # toca no stop e no uninstall. Arquivos soltos em assets/ não entram no sorteio; pacotes são subpastas.
 LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
@@ -47,16 +49,31 @@ read_sys_audio() { parse_volume_settings "$(osascript -e 'get volume settings' 2
 set_sys_audio()  { osascript -e "set volume output volume $1" -e "set volume output muted $2" >/dev/null 2>&1; }   # $1 = 0-100, $2 = true|false
 
 read_settings() {
-  MODE_=ramp VOL_=60 LAZY_=0
-  [[ -f $SETTINGS ]] && read -r MODE_ VOL_ LAZY_ < "$SETTINGS"
-  VOL_=${VOL_:-60} LAZY_=${LAZY_:-0}
+  MODE_=ramp VOL_=60 LAZY_=0 PACK_=all
+  [[ -f $SETTINGS ]] && read -r MODE_ VOL_ LAZY_ PACK_ < "$SETTINGS"
+  VOL_=${VOL_:-60} LAZY_=${LAZY_:-0} PACK_=${PACK_:-all}
 }
-settings_str() { read_settings; echo "modo $MODE_, volume $VOL_%$( (( LAZY_ )) && echo ', lazy' )"; }
+settings_str() { read_settings; echo "modo $MODE_, volume $VOL_%$( (( LAZY_ )) && echo ', lazy' )$([[ $PACK_ != all ]] && echo ", pacote $PACK_")"; }
+packs() { (cd "$DIR/assets" && for d in */; do printf '%s ' "${d%/}"; done); }
 
 die()     { echo "$*" >&2; exit 1; }
 log()     { echo "$(date '+%F %T') $*"; }
 running() { launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q $'^\tstate = running'; }
 pid()     { launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -m1 'pid = ' | awk '{print $3}'; }
+
+# toca $1 no volume das settings. Mac no mudo: desmuta com cap, toca, volta ao mudo — também se levar stop no meio (trap só durante o som).
+# Deixa em PLAY_NOTE o sufixo pro log ("" ou " (Mac no mudo: ...)"). SIGKILL no meio do som deixa desmutado.
+play_file() {
+  local f=$1 cap; PLAY_NOTE=''
+  read_sys_audio
+  if [[ $SYS_MUTED == true ]]; then
+    cap=$(( SYS_VOL < MUTED_CAP ? SYS_VOL : MUTED_CAP ))
+    trap 'set_sys_audio "$SYS_VOL" true; exit' TERM INT
+    set_sys_audio "$cap" false
+  fi
+  /usr/bin/afplay -v "$(pct_to_gain "$VOL_")" "$f" || log "erro ao tocar $f"
+  if [[ $SYS_MUTED == true ]]; then set_sys_audio "$SYS_VOL" true; trap - TERM INT; PLAY_NOTE=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"; fi
+}
 
 write_plist() {
   cat > "$PLIST" <<PLIST
@@ -75,44 +92,38 @@ PLIST
 
 # loop em foreground; é isso que o launchd executa
 cmd_run() {
-  local prev='' f gap files gain cap note t0
-  read_settings; gain=$(pct_to_gain "$VOL_")
+  local prev='' f gap files t0
+  read_settings
   log "iniciado ($(settings_str))"
   (( LAZY_ )) && { log "lazy: primeiro som em $(( LAZY_SECONDS / 60 ))min"; sleep "$LAZY_SECONDS"; }
   t0=$(date +%s)
   while :; do
-    # ponytail: um pool só, relido a cada ciclo (dá pra jogar sons novos sem reiniciar). Pacotes temáticos = subpasta + nome no settings.
-    files=("$DIR"/assets/*)
-    [[ -e ${files[0]} ]] || { log "nenhum áudio em $DIR/assets"; exit 1; }
+    # relido a cada ciclo: dá pra jogar sons novos sem reiniciar. Pacote = subpasta de assets/; all = todas.
+    if [[ $PACK_ == all ]]; then files=("$DIR"/assets/*/*); else files=("$DIR"/assets/"$PACK_"/*); fi
+    (( ${#files[@]} )) || { log "nenhum áudio em $DIR/assets/${PACK_/all/*}"; exit 1; }
     f=$(pick_next "$prev" "${files[@]}")
-    read_sys_audio; note=''
-    if [[ $SYS_MUTED == true ]]; then
-      cap=$(( SYS_VOL < MUTED_CAP ? SYS_VOL : MUTED_CAP ))
-      trap 'set_sys_audio "$SYS_VOL" true; exit' TERM INT   # stop no meio do som: o som termina, volta ao mudo, sai. SIGKILL deixa desmutado.
-      set_sys_audio "$cap" false
-    fi
-    /usr/bin/afplay -v "$gain" "$f" || log "erro ao tocar $f"
-    if [[ $SYS_MUTED == true ]]; then set_sys_audio "$SYS_VOL" true; trap - TERM INT; note=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"; fi
+    play_file "$f"
     prev=$f
     gap=$(gap_seconds "$MODE_" $(( $(date +%s) - t0 )))
-    log "tocou $(basename "$f")$note; próximo em ${gap}s"
+    log "tocou $(basename "$f")$PLAY_NOTE; próximo em ${gap}s"
     sleep "$gap"
   done
 }
 
-# start [ramp|normal|slow|fast|MIN-MAX] [N%] [lazy], em qualquer ordem
+# start [ramp|normal|slow|fast|MIN-MAX] [N%] [lazy] [pacote], em qualquer ordem
 cmd_start() {
-  local a mode=ramp vol=60 lazy=0
+  local a mode=ramp vol=60 lazy=0 pack=all
   for a in "$@"; do
     if [[ $a =~ ^(ramp|normal|slow|fast|([0-9]+)-([0-9]+))$ ]]; then
       mode=$a; [[ -n ${BASH_REMATCH[2]} ]] && (( BASH_REMATCH[2] > BASH_REMATCH[3] )) && die "faixa inválida: $a (MIN deve ser <= MAX)"
     elif [[ $a =~ ^([0-9]|[1-9][0-9]|100)%$ ]]; then vol=${a%\%}
     elif [[ $a == lazy ]]; then lazy=1
-    else die "argumento inválido: $a (use: ramp | normal | slow | fast | MIN-MAX em segundos, N% de volume, lazy)"
+    elif [[ $a != */* && -d $DIR/assets/$a ]]; then pack=$a
+    else die "argumento inválido: $a (use: ramp | normal | slow | fast | MIN-MAX em segundos, N% de volume, lazy, ou um pacote: $(packs))"
     fi
   done
   running && die "já está rodando (PID $(pid), $(settings_str)). Pra trocar: $SELF stop && $SELF start $*"
-  echo "$mode $vol $lazy" > "$SETTINGS"
+  echo "$mode $vol $lazy $pack" > "$SETTINGS"
   write_plist
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null   # limpa instância carregada mas já encerrada
   launchctl bootstrap "$DOMAIN" "$PLIST" || die "falhou ao iniciar"
@@ -122,13 +133,17 @@ cmd_start() {
 }
 
 cmd_stop() {
+  local p i=0; p=$(pid)
   if running; then launchctl bootout "$DOMAIN/$LABEL"; echo "parado. O som em curso termina sozinho."
   else launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null; echo "não estava rodando"; fi
+  while [[ -n $p ]] && kill -0 "$p" 2>/dev/null && (( i++ < 75 )); do sleep 0.2; done   # espera o som em curso acabar (e o mudo voltar) antes da risada
+  [[ -f $STOP_SOUND ]] && { read_settings; play_file "$STOP_SOUND"; log "stop: tocou $(basename "$STOP_SOUND")$PLAY_NOTE" >> "$LOG"; }
 }
 
 cmd_status() {
   if running; then echo "rodando (PID $(pid), $(settings_str))"; else echo "parado"; fi
   echo "autostart: $([[ -f $AGENT ]] && echo on || echo off)"
+  echo "pacotes: $(packs)"
   echo "log: $LOG"
 }
 
@@ -150,15 +165,17 @@ usage() { cat <<EOT
 soundloop — toca sons aleatórios em background. Brincadeira de escritório: consensual, visível e parável.
 
 uso: $SELF <comando>
-  start [modo] [N%] [lazy]  inicia (default: ramp, 60%, sem lazy). Ordem livre.
+  start [modo] [N%] [lazy] [pacote]
+                            inicia (default: ramp, 60%, sem lazy, todos os pacotes). Ordem livre.
                             modo: ramp 900s->30s em 2h, calmo e despenca no fim | normal 90-210s | slow 30-50min
                                   fast 10-13s | MIN-MAX segundos
                             N%: volume relativo ao do Mac | lazy: primeiro som só depois de 20min
-  stop                      para (o som em curso termina sozinho)
-  status                    rodando/parado, PID, modo, volume, autostart
+                            pacote: subpasta de assets/ ($(packs)); sem pacote = todos
+  stop                      para (o som em curso termina sozinho) e toca a risada
+  status                    rodando/parado, PID, modo, volume, pacote, autostart
   enable-autostart          inicia sozinho no login com as opções do último start (visível em Itens de Início)
   disable-autostart         remove do login
-  uninstall                 stop + disable-autostart + apaga $DIR
+  uninstall                 stop (com risada) + disable-autostart + apaga $DIR
 obs: toca mesmo com o Mac no mudo (desmuta com o sistema limitado a 30% durante o som; volta ao mudo depois)
 log: $LOG
 EOT

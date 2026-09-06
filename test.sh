@@ -36,7 +36,8 @@ ORIG_VOL=$(osascript -e 'output volume of (get volume settings)'); ORIG_MUTED=$(
 T=$(mktemp -d); trap 'launchctl bootout gui/$UID/$SOUNDLOOP_LABEL 2>/dev/null; rm -f "$LA"; rm -rf "$T"; osascript -e "set volume output volume $ORIG_VOL" -e "set volume output muted $ORIG_MUTED"' EXIT
 TEST_VOL=5; osascript -e "set volume output volume $TEST_VOL" -e 'set volume output muted false'   # baixo e desmutado pros testes gerais; o bloco do mudo muta de propósito
 cp -R . "$T/app"; rm -rf "$T/app/.git"; APP=$T/app/soundloop; APPLOG=$T/app/soundloop.log
-find "$T/app/assets" -type f ! -name windows-error.mp3 ! -name notif-zapzap.mp3 -delete   # só os 2 sons curtos: mantém o teste em ~20s
+find "$T/app/assets" -type f ! -name windows-error.mp3 ! -name notif-zapzap.mp3 ! -name discord-join.mp3 -delete   # só sons curtos
+cp "$T/app/assets/windows/windows-error.mp3" "$T/app/assets/stop.mp3"   # risada de 7s vira som de 1s nos testes
 
 $APP status | grep -q '^parado' && ok "status inicial: parado" || bad "status inicial"
 $APP start 1-2 | grep -q "^rodando" && ok "start" || bad "start"
@@ -58,6 +59,12 @@ sleep 3; (( $(grep -c tocou "$APPLOG") == n1 )) && grep -q 'lazy' "$APPLOG" && o
 $APP stop >/dev/null
 (( $(grep -c 'iniciado' "$APPLOG") >= 2 )) && ok "log acumula entre starts" || bad "log foi truncado"
 $APP stop >/dev/null
+# --- pacotes: subpastas de assets/; start <pacote> toca só ele; stop toca stop.mp3 ---
+n1=$(grep -c tocou "$APPLOG"); $APP start discord 1-2 >/dev/null && $APP status | grep -q 'pacote discord' && ok "start discord: pacote no status" || bad "start discord: $($APP status | head -1)"
+sleep 5; $APP stop >/dev/null
+novos=$(grep tocou "$APPLOG" | tail -n +$((n1+1)) | grep -v 'stop:'); [[ -n $novos && -z $(grep -v 'discord-' <<<"$novos") ]] && ok "pacote discord: só tocou discord-*" || bad "pacote discord: tocou: $novos"
+grep -q 'stop: tocou stop.mp3' "$APPLOG" && ok "stop toca stop.mp3 e loga" || bad "stop não logou stop.mp3"
+
 # --- override do mudo: muta o Mac, roda ~1 ciclo, confere marca no log e estado restaurado ---
 osascript -e 'set volume output muted true'
 $APP start 1-2 >/dev/null; sleep 6; $APP stop >/dev/null; sleep 4
@@ -71,7 +78,7 @@ $APP status | grep -q 'autostart: on' && ok "status: autostart on" || bad "statu
 $APP disable-autostart >/dev/null && [[ ! -e $LA ]] && ok "disable-autostart remove plist" || bad "disable-autostart"
 $APP status | grep -q 'autostart: off' && ok "status: autostart off" || bad "status autostart off"
 
-cp -R "$T/app" "$T/empty"; rm -f "$T/empty"/assets/*
+cp -R "$T/app" "$T/empty"; rm -rf "$T/empty"/assets/*
 "$T/empty/soundloop" start 1-2 >/dev/null 2>&1 && bad "start sem áudios aceito" || ok "start sem áudios falha"
 "$T/empty/soundloop" stop >/dev/null 2>&1
 
