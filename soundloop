@@ -12,14 +12,15 @@ LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
 LAZY_SECONDS=1200   # ponytail: lazy start fixo em 20min; vira argumento se alguém pedir
-RAMP_START=900 RAMP_MIN=30 RAMP_FACTOR=90   # ponytail: ramp = gap x0.9 por som: 900s -> 30s em ~33 sons (~2h25). Sem jitter.
+RAMP_START=900 RAMP_MIN=30 RAMP_DURATION=7200   # ponytail: ramp quadrática no tempo (ease-out): gap = MIN + (START-MIN)*(1-t/T)^2, t = s desde o 1º som. 30s em 2h. Sem jitter.
 MUTED_CAP=30        # ponytail: Mac no mudo -> desmuta com o volume do sistema limitado a 30% só durante o som, e volta ao mudo
 
-# $1 = modo (ramp | normal | slow | fast | MIN-MAX em segundos), $2 = gap anterior (só o ramp usa) -> segundos até o próximo som
+# $1 = modo (ramp | normal | slow | fast | MIN-MAX em segundos), $2 = segundos desde o 1º som (só o ramp usa) -> segundos até o próximo som
 gap_seconds() {
   local range g
   case $1 in
-    ramp) [[ -n ${2:-} ]] || { echo "$RAMP_START"; return; }; g=$(( $2 * RAMP_FACTOR / 100 )); echo $(( g > RAMP_MIN ? g : RAMP_MIN )); return ;;
+    ramp) local t=${2:-0} T=$RAMP_DURATION; (( t > T )) && t=$T
+          echo $(( RAMP_MIN + (RAMP_START - RAMP_MIN) * (T - t) * (T - t) / (T * T) )); return ;;
     slow) range=1800-3000 ;; fast) range=10-13 ;; normal) range=90-210 ;; *) range=$1 ;;
   esac
   local min=${range%-*} max=${range#*-}
@@ -74,10 +75,11 @@ PLIST
 
 # loop em foreground; é isso que o launchd executa
 cmd_run() {
-  local prev='' f gap='' files gain cap note
+  local prev='' f gap files gain cap note t0
   read_settings; gain=$(pct_to_gain "$VOL_")
   log "iniciado ($(settings_str))"
   (( LAZY_ )) && { log "lazy: primeiro som em $(( LAZY_SECONDS / 60 ))min"; sleep "$LAZY_SECONDS"; }
+  t0=$(date +%s)
   while :; do
     # ponytail: um pool só, relido a cada ciclo (dá pra jogar sons novos sem reiniciar). Pacotes temáticos = subpasta + nome no settings.
     files=("$DIR"/assets/*)
@@ -92,7 +94,7 @@ cmd_run() {
     /usr/bin/afplay -v "$gain" "$f" || log "erro ao tocar $f"
     if [[ $SYS_MUTED == true ]]; then set_sys_audio "$SYS_VOL" true; trap - TERM INT; note=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"; fi
     prev=$f
-    gap=$(gap_seconds "$MODE_" "$gap")
+    gap=$(gap_seconds "$MODE_" $(( $(date +%s) - t0 )))
     log "tocou $(basename "$f")$note; próximo em ${gap}s"
     sleep "$gap"
   done
@@ -149,7 +151,7 @@ soundloop — toca sons aleatórios em background. Brincadeira de escritório: c
 
 uso: $SELF <comando>
   start [modo] [N%] [lazy]  inicia (default: ramp, 60%, sem lazy). Ordem livre.
-                            modo: ramp 900s->30s apertando a cada som (~2h30) | normal 90-210s | slow 30-50min
+                            modo: ramp 900s->30s em 2h, curva quadrática | normal 90-210s | slow 30-50min
                                   fast 10-13s | MIN-MAX segundos
                             N%: volume relativo ao do Mac | lazy: primeiro som só depois de 20min
   stop                      para (o som em curso termina sozinho)

@@ -13,7 +13,8 @@ in_range() { local lo=$1 hi=$2 v; for _ in $(seq 200); do v=$(gap_seconds "$3");
 in_range 90 210 normal    && ok "gap normal 90-210s"     || bad "gap normal fora da faixa"
 in_range 1800 3000 slow   && ok "gap slow 1800-3000s"    || bad "gap slow fora da faixa"
 in_range 10 13 fast       && ok "gap fast 10-13s"        || bad "gap fast fora da faixa"
-[[ $(gap_seconds ramp) == 900 && $(gap_seconds ramp 900) == 810 && $(gap_seconds ramp 33) == 30 && $(gap_seconds ramp 30) == 30 ]] && ok "gap ramp: 900 no início, x0.9 por som, piso 30" || bad "gap ramp: $(gap_seconds ramp) $(gap_seconds ramp 900) $(gap_seconds ramp 33) $(gap_seconds ramp 30)"
+T=$RAMP_DURATION; ramp=$(for t in 0 $((T/4)) $((T/2)) $T $((T*2)); do gap_seconds ramp $t; done | tr '\n' ' ')
+[[ $ramp == "900 519 247 30 30 " ]] && ok "gap ramp quadrático no tempo: 900 → 519 (T/4) → 247 (T/2) → 30 (T), clamp após T" || bad "gap ramp: '$ramp'"
 in_range 5 6 5-6          && ok "gap custom 5-6"         || bad "gap custom fora da faixa"
 
 [[ $(pct_to_gain 60) == 0.60 && $(pct_to_gain 100) == 1.00 && $(pct_to_gain 5) == 0.05 ]] && ok "pct_to_gain 60/100/5" || bad "pct_to_gain: $(pct_to_gain 60) $(pct_to_gain 100) $(pct_to_gain 5)"

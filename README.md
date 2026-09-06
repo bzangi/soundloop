@@ -14,7 +14,7 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 
 | Comando | Faz |
 |---|---|
-| `~/.soundloop/soundloop start` | inicia em background no modo `ramp`: começa com 15 min entre sons e aperta 10% a cada som, até 30s (~2h30 de rampa) |
+| `~/.soundloop/soundloop start` | inicia em background no modo `ramp`: começa com 15 min entre sons e aperta em curva quadrática até 30s em 2h (30 min: ~9 min de gap; 1h: ~4 min; 1h30: ~1,5 min) |
 | `~/.soundloop/soundloop start normal` | 90–210s entre sons, fixo |
 | `~/.soundloop/soundloop start slow` | modo lento (30–50 min entre sons) |
 | `~/.soundloop/soundloop start fast` | modo rápido (10–13s entre sons) |
