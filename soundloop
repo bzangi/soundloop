@@ -12,7 +12,7 @@ LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
 LAZY_SECONDS=1200   # ponytail: lazy start fixo em 20min; vira argumento se alguém pedir
-RAMP_START=900 RAMP_MIN=30 RAMP_DURATION=7200   # ponytail: ramp quadrática no tempo (ease-out): gap = MIN + (START-MIN)*(1-t/T)^2, t = s desde o 1º som. 30s em 2h. Sem jitter.
+RAMP_START=900 RAMP_MIN=30 RAMP_DURATION=7200   # ponytail: ramp quadrática no tempo (ease-in): gap = MIN + (START-MIN)*(1-(t/T)^2), t = s desde o 1º som. Calmo quase até o fim, despenca nos últimos ~20min; 30s em 2h. Sem jitter.
 MUTED_CAP=30        # ponytail: Mac no mudo -> desmuta com o volume do sistema limitado a 30% só durante o som, e volta ao mudo
 
 # $1 = modo (ramp | normal | slow | fast | MIN-MAX em segundos), $2 = segundos desde o 1º som (só o ramp usa) -> segundos até o próximo som
@@ -20,7 +20,7 @@ gap_seconds() {
   local range g
   case $1 in
     ramp) local t=${2:-0} T=$RAMP_DURATION; (( t > T )) && t=$T
-          echo $(( RAMP_MIN + (RAMP_START - RAMP_MIN) * (T - t) * (T - t) / (T * T) )); return ;;
+          echo $(( RAMP_MIN + (RAMP_START - RAMP_MIN) * (T * T - t * t) / (T * T) )); return ;;
     slow) range=1800-3000 ;; fast) range=10-13 ;; normal) range=90-210 ;; *) range=$1 ;;
   esac
   local min=${range%-*} max=${range#*-}
@@ -151,7 +151,7 @@ soundloop — toca sons aleatórios em background. Brincadeira de escritório: c
 
 uso: $SELF <comando>
   start [modo] [N%] [lazy]  inicia (default: ramp, 60%, sem lazy). Ordem livre.
-                            modo: ramp 900s->30s em 2h, curva quadrática | normal 90-210s | slow 30-50min
+                            modo: ramp 900s->30s em 2h, calmo e despenca no fim | normal 90-210s | slow 30-50min
                                   fast 10-13s | MIN-MAX segundos
                             N%: volume relativo ao do Mac | lazy: primeiro som só depois de 20min
   stop                      para (o som em curso termina sozinho)
