@@ -21,17 +21,19 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 | `~/.soundloop/soundloop start 5-10` | intervalo custom, em segundos |
 | `~/.soundloop/soundloop start fast 30%` | modo rápido a 30% do volume do Mac (default: 60%) |
 | `~/.soundloop/soundloop start lazy` | primeiro som só depois de 20 min; combina com qualquer modo |
-| `~/.soundloop/soundloop stop` | para (o som em curso termina sozinho) |
-| `~/.soundloop/soundloop status` | rodando/parado, PID, modo, autostart |
+| `~/.soundloop/soundloop start discord` | só o pacote `discord` (pacotes = subpastas de `assets/`; sem pacote = todos) |
+| `~/.soundloop/soundloop stop` | para (o som em curso termina sozinho) e toca a risada de despedida |
+| `~/.soundloop/soundloop status` | rodando/parado, PID, modo, volume, pacote, autostart |
 | `~/.soundloop/soundloop enable-autostart` | inicia sozinho no login |
 | `~/.soundloop/soundloop disable-autostart` | remove do login |
-| `~/.soundloop/soundloop uninstall` | para, remove do login e apaga `~/.soundloop` |
+| `~/.soundloop/soundloop uninstall` | para (com risada), remove do login e apaga `~/.soundloop` |
 
-Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem argumentos = ramp, 60%, sem lazy. `enable-autostart` usa as opções do último `start`.
+Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem argumentos = ramp, 60%, sem lazy, todos os pacotes. `enable-autostart` usa as opções do último `start`.
 
 ## Como funciona
 
-- Cada ciclo: sorteia um som de `assets/` (sempre diferente do anterior), toca com `afplay`, espera um intervalo aleatório, repete. Um som por vez, sem sobreposição.
+- Cada ciclo: sorteia um som dos pacotes (sempre diferente do anterior), toca com `afplay`, espera o intervalo do modo, repete. Um som por vez, sem sobreposição.
+- `stop` e `uninstall` esperam o som em curso acabar e tocam `assets/stop.mp3` (uma risada de 7s) antes de devolver o terminal.
 - O loop roda como serviço do `launchd` (label `com.bzangi.soundloop`). `status` mostra o PID. Log em `~/.soundloop/soundloop.log`.
 - Autostart é um plist em `~/Library/LaunchAgents/`; o macOS lista em Ajustes do Sistema › Geral › Itens de Início. Só existe se você rodar `enable-autostart`.
 - Toca a 60% do volume atual do Mac por padrão; `N%` no `start` muda.
@@ -40,9 +42,9 @@ Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem arg
 
 ## Sons
 
-Qualquer arquivo que o `afplay` toque (mp3, m4a, wav, aiff) dentro de `~/.soundloop/assets/`. Pode jogar arquivos lá com o loop rodando: o próximo sorteio já considera.
+Pacotes são subpastas de `~/.soundloop/assets/`: hoje `windows/` e `discord/`. Qualquer arquivo que o `afplay` toque (mp3, m4a, wav, aiff). `start <pacote>` toca só aquele; sem pacote, sorteia entre todos. Pode jogar arquivos numa subpasta com o loop rodando: o próximo sorteio já considera. Arquivos soltos em `assets/` não entram no sorteio; `assets/stop.mp3` é a risada do `stop`.
 
-Pra entrar no pacote de todo mundo, commita em `assets/` do repo (nome sem espaços). Quem já instalou pega rodando o install de novo.
+Pra entrar no pacote de todo mundo, commita em `assets/<pacote>/` do repo (nome sem espaços). Quem já instalou pega rodando o install de novo.
 
 ## Remover
 
