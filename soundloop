@@ -13,9 +13,10 @@ STOP_SOUND=$DIR/assets/stop.mp3   # toca no stop e no uninstall. Arquivos soltos
 LABEL=${SOUNDLOOP_LABEL:-com.bzangi.soundloop}   # override só pro test.sh
 AGENT=$HOME/Library/LaunchAgents/$LABEL.plist
 DOMAIN=gui/$UID
-LAZY_SECONDS=1200   # ponytail: lazy start fixo em 20min; vira argumento se alguém pedir
+LAZY_SECONDS=1800   # ponytail: lazy start fixo em 30min; vira argumento se alguém pedir
 RAMP_START=900 RAMP_MIN=30 RAMP_DURATION=7200   # ponytail: ramp quadrática no tempo (ease-in): gap = MIN + (START-MIN)*(1-(t/T)^2), t = s desde o 1º som. Calmo quase até o fim, despenca nos últimos ~20min; 30s em 2h. Sem jitter.
 MUTED_CAP=30        # ponytail: Mac no mudo -> desmuta com o volume do sistema limitado a 30% só durante o som, e volta ao mudo
+SWITCH=$(command -v SwitchAudioSource || true)   # opcional (brew install switchaudio-osx): sem ele, toca no dispositivo de saída atual. macOS não tem CLI nativa pra isso.
 
 # $1 = modo (ramp | normal | slow | fast | MIN-MAX em segundos), $2 = segundos desde o 1º som (só o ramp usa) -> segundos até o próximo som
 gap_seconds() {
@@ -61,18 +62,36 @@ log()     { echo "$(date '+%F %T') $*"; }
 running() { launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q $'^\tstate = running'; }
 pid()     { launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -m1 'pid = ' | awk '{print $3}'; }
 
-# toca $1 no volume das settings. Mac no mudo: desmuta com cap, toca, volta ao mudo — também se levar stop no meio (trap só durante o som).
-# Deixa em PLAY_NOTE o sufixo pro log ("" ou " (Mac no mudo: ...)"). SIGKILL no meio do som deixa desmutado.
+# -> nome do alto-falante interno na lista de saídas (vazio se não achar ou sem SwitchAudioSource)
+builtin_speaker() { [[ -n $SWITCH ]] && "$SWITCH" -a -t output 2>/dev/null | grep -m1 -iE 'speaker|alto-falante|built-in'; }
+
+# desfaz o que play_file mexeu: volume/mudo e depois o dispositivo de saída
+restore_audio() {
+  [[ $SYS_MUTED == true ]] && set_sys_audio "$SYS_VOL" true
+  [[ -n $PREV_DEV ]] && "$SWITCH" -s "$PREV_DEV" -t output >/dev/null 2>&1
+  trap - TERM INT
+}
+
+# toca $1 no volume das settings, sempre no alto-falante do Mac (troca o device, toca, volta pro anterior).
+# Mac no mudo: desmuta com cap, toca, volta ao mudo. Ambos desfeitos também se levar stop no meio (trap só durante o som).
+# Deixa em PLAY_NOTE o sufixo pro log. SIGKILL no meio do som deixa desmutado / no alto-falante.
 play_file() {
-  local f=$1 cap; PLAY_NOTE=''
-  read_sys_audio
+  local f=$1 cap spk; PLAY_NOTE='' PREV_DEV=''
+  spk=$(builtin_speaker)
+  if [[ -n $spk ]]; then
+    PREV_DEV=$("$SWITCH" -c -t output 2>/dev/null)
+    if [[ $spk == "$PREV_DEV" ]]; then PREV_DEV=''
+    else "$SWITCH" -s "$spk" -t output >/dev/null 2>&1; PLAY_NOTE=" (saída: $spk)"; fi
+  fi
+  read_sys_audio   # depois da troca: volume e mudo são por dispositivo
   if [[ $SYS_MUTED == true ]]; then
     cap=$(( SYS_VOL < MUTED_CAP ? SYS_VOL : MUTED_CAP ))
-    trap 'set_sys_audio "$SYS_VOL" true; exit' TERM INT
     set_sys_audio "$cap" false
+    PLAY_NOTE+=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"
   fi
+  [[ $SYS_MUTED == true || -n $PREV_DEV ]] && trap 'restore_audio; exit' TERM INT
   /usr/bin/afplay -v "$(pct_to_gain "$VOL_")" "$f" || log "erro ao tocar $f"
-  if [[ $SYS_MUTED == true ]]; then set_sys_audio "$SYS_VOL" true; trap - TERM INT; PLAY_NOTE=" (Mac no mudo: toquei a ${cap}% e voltei ao mudo)"; fi
+  restore_audio
 }
 
 write_plist() {
@@ -95,6 +114,7 @@ cmd_run() {
   local prev='' f gap files t0
   read_settings
   log "iniciado ($(settings_str))"
+  [[ -z $SWITCH ]] && log "aviso: SwitchAudioSource não instalado (brew install switchaudio-osx); toco no dispositivo de saída atual"
   (( LAZY_ )) && { log "lazy: primeiro som em $(( LAZY_SECONDS / 60 ))min"; sleep "$LAZY_SECONDS"; }
   t0=$(date +%s)
   while :; do
@@ -169,7 +189,7 @@ uso: $SELF <comando>
                             inicia (default: ramp, 60%, sem lazy, todos os pacotes). Ordem livre.
                             modo: ramp 900s->30s em 2h, calmo e despenca no fim | normal 90-210s | slow 30-50min
                                   fast 10-13s | MIN-MAX segundos
-                            N%: volume relativo ao do Mac | lazy: primeiro som só depois de 20min
+                            N%: volume relativo ao do Mac | lazy: primeiro som só depois de 30min
                             pacote: subpasta de assets/ ($(packs)); sem pacote = todos
   stop                      para (o som em curso termina sozinho) e toca a risada
   status                    rodando/parado, PID, modo, volume, pacote, autostart

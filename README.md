@@ -8,7 +8,7 @@ Toca um som aleatório em background, em intervalos aleatórios. Brincadeira de 
 curl -fsSL https://raw.githubusercontent.com/bzangi/soundloop/main/install.sh | bash
 ```
 
-Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler antes de rodar: [install.sh](install.sh). Pra atualizar, rode o mesmo comando de novo.
+Baixa o repo pra `~/.soundloop` e **já inicia** no modo `ramp` com `lazy` — o primeiro som só sai 30 min depois. Quer ler antes de rodar: [install.sh](install.sh). Pra atualizar, rode o mesmo comando de novo.
 
 ## Comandos
 
@@ -20,7 +20,7 @@ Baixa o repo pra `~/.soundloop`. **Nada é iniciado automaticamente.** Quer ler 
 | `~/.soundloop/soundloop start fast` | modo rápido (10–13s entre sons) |
 | `~/.soundloop/soundloop start 5-10` | intervalo custom, em segundos |
 | `~/.soundloop/soundloop start fast 30%` | modo rápido a 30% do volume do Mac (default: 60%) |
-| `~/.soundloop/soundloop start lazy` | primeiro som só depois de 20 min; combina com qualquer modo |
+| `~/.soundloop/soundloop start lazy` | primeiro som só depois de 30 min; combina com qualquer modo |
 | `~/.soundloop/soundloop start discord` | só o pacote `discord` (pacotes = subpastas de `assets/`; sem pacote = todos) |
 | `~/.soundloop/soundloop stop` | para (o som em curso termina sozinho) e toca a risada de despedida |
 | `~/.soundloop/soundloop status` | rodando/parado, PID, modo, volume, pacote, autostart |
@@ -37,6 +37,7 @@ Os argumentos do `start` vão em qualquer ordem (`start slow 40% lazy`). Sem arg
 - O loop roda como serviço do `launchd` (label `com.bzangi.soundloop`). `status` mostra o PID. Log em `~/.soundloop/soundloop.log`.
 - Autostart é um plist em `~/Library/LaunchAgents/`; o macOS lista em Ajustes do Sistema › Geral › Itens de Início. Só existe se você rodar `enable-autostart`.
 - Toca a 60% do volume atual do Mac por padrão; `N%` no `start` muda.
+- **Antes de cada som troca a saída pro alto-falante do Mac** e volta pro dispositivo anterior (fone, monitor) quando o som acaba. Precisa de `brew install switchaudio-osx` — macOS não tem CLI nativa pra trocar dispositivo de saída. Sem ele, toca no dispositivo atual e o log avisa.
 - **Toca mesmo com o Mac no mudo.** Na hora do som: desmuta com o volume do sistema limitado a 30%, toca, volta ao mudo e restaura o volume. `stop` no meio de um som espera o som acabar e restaura também. Só `kill -9` no meio de um som deixa o Mac desmutado.
 - Zero dependências: `bash`, `afplay` e `launchctl` já vêm no macOS.
 
