@@ -16,7 +16,12 @@ DOMAIN=gui/$UID
 LAZY_SECONDS=1800   # ponytail: lazy start fixo em 30min; vira argumento se alguém pedir
 RAMP_START=900 RAMP_MIN=30 RAMP_DURATION=7200   # ponytail: ramp quadrática no tempo (ease-in): gap = MIN + (START-MIN)*(1-(t/T)^2), t = s desde o 1º som. Calmo quase até o fim, despenca nos últimos ~20min; 30s em 2h. Sem jitter.
 MUTED_CAP=30        # ponytail: Mac no mudo -> desmuta com o volume do sistema limitado a 30% só durante o som, e volta ao mudo
-SWITCH=$(command -v SwitchAudioSource || true)   # opcional (brew install switchaudio-osx): sem ele, toca no dispositivo de saída atual. macOS não tem CLI nativa pra isso.
+# opcional (brew install switchaudio-osx): sem ele, toca no dispositivo de saída atual. macOS não tem CLI nativa pra isso.
+# Caminhos do brew explícitos: o PATH do launchd é mínimo e não inclui /opt/homebrew/bin.
+SWITCH=''
+for p_ in "$(command -v SwitchAudioSource || true)" /opt/homebrew/bin/SwitchAudioSource /usr/local/bin/SwitchAudioSource; do
+  [[ -n $p_ && -x $p_ ]] && { SWITCH=$p_; break; }
+done
 
 # $1 = modo (ramp | normal | slow | fast | MIN-MAX em segundos), $2 = segundos desde o 1º som (só o ramp usa) -> segundos até o próximo som
 gap_seconds() {
